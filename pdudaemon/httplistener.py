@@ -60,9 +60,10 @@ class HTTPListener:
         logger.info("Handling HTTP request from %s: %s", request.remote, request.path_qs)
         data = urlparse.parse_qs(urlparse.urlparse(request.path_qs).query)
         path = urlparse.urlparse(request.path_qs).path
-        res = await self.insert_request(data, path)
-        if res:
-            return web.Response(status=200, text="OK - accepted request\n")
+        (request_good, response) = await self.insert_request(data, path)
+        if request_good:
+            response = response or "OK - accepted request\n"
+            return web.Response(status=200, text=response)
         else:
             return web.Response(status=500, text="Invalid request\n")
 

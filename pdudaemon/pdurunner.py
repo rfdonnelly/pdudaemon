@@ -53,8 +53,8 @@ class PDURunner:
         retries = self.retries
         while retries > 0:
             try:
-                self.driver.handle(request, port)
-                return True
+                response = self.driver.handle(request, port)
+                return (True, response)
             except (OSError, pexpect.exceptions.EOF, Exception):  # pylint: disable=broad-except
                 self.logger.warn(traceback.format_exc())
                 self.logger.warn("Failed to execute job: {} {} (attempts left {})".format(port, request, retries - 1))
@@ -63,7 +63,7 @@ class PDURunner:
                 time.sleep(5)
                 retries -= 1
                 continue
-        return False
+        return (False, None)
 
     async def do_job_async(self, port, request):
         loop = asyncio.get_running_loop()
