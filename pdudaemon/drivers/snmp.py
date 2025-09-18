@@ -18,7 +18,17 @@
 #  MA 02110-1301, USA.
 
 import logging
-from pysnmp.hlapi import setCmd, SnmpEngine, UsmUserData, UdpTransportTarget, ContextData, CommunityData, ObjectType, ObjectIdentity
+from pysnmp.hlapi import (
+    getCmd,
+    setCmd,
+    SnmpEngine,
+    UsmUserData,
+    UdpTransportTarget,
+    ContextData,
+    CommunityData,
+    ObjectType,
+    ObjectIdentity,
+)
 import pysnmp.hlapi as pysnmp_api
 from pdudaemon.drivers.driver import PDUDriver, FailedRequestException, UnknownCommandException
 import os
@@ -53,14 +63,7 @@ class SNMP(PDUDriver):
     def validate(self):
         pass
 
-    def port_interaction(self, command, port_number):
-        if command == "on":
-            set_bit = self.onsetting
-        elif command == "off":
-            set_bit = self.offsetting
-        else:
-            raise UnknownCommandException("Unknown command %s." % (command))
-
+    def snmpreq(self, port_number: int, value: None or int) -> None or int:
         transport = UdpTransportTarget((self.hostname, 161))
 
         if self.inside_number:
@@ -73,9 +76,21 @@ class SNMP(PDUDriver):
         else:
             indexed_object_list = [self.mib, self.controlpoint, port_number]
 
-        objecttype = ObjectType(
-            ObjectIdentity(*indexed_object_list).addAsn1MibSource(
-                'http://mibs.snmplabs.com/asn1/@mib@'), int(set_bit))
+        if value:
+            snmp_cmd = setCmd
+            objecttype = ObjectType(
+                ObjectIdentity(*indexed_object_list).addAsn1MibSource(
+                    "http://mibs.snmplabs.com/asn1/@mib@"
+                ),
+                int(value),
+            )
+        else:
+            snmp_cmd = getCmd
+            objecttype = ObjectType(
+                ObjectIdentity(*indexed_object_list).addAsn1MibSource(
+                    "http://mibs.snmplabs.com/asn1/@mib@"
+                )
+            )
 
         if self.version == 'snmpv3':
             if not self.username:
@@ -92,21 +107,19 @@ class SNMP(PDUDriver):
 
             userdata = UsmUserData(self.username, self.authpass, self.privpass, **protocols)
             errorIndication, errorStatus, errorIndex, varBinds = next(
-                setCmd(SnmpEngine(),
-                       userdata,
-                       transport,
-                       ContextData(),
-                       objecttype)
+                snmp_cmd(SnmpEngine(), userdata, transport, ContextData(), objecttype)
             )
         elif self.version == 'snmpv1':
             if not self.community:
                 raise FailedRequestException("No community set for snmpv1")
             errorIndication, errorStatus, errorIndex, varBinds = next(
-                setCmd(SnmpEngine(),
-                       CommunityData(self.community),
-                       transport,
-                       ContextData(),
-                       objecttype)
+                snmp_cmd(
+                    SnmpEngine(),
+                    CommunityData(self.community),
+                    transport,
+                    ContextData(),
+                    objecttype,
+                )
             )
         else:
             raise FailedRequestException("Unknown snmp version")
@@ -118,4 +131,28 @@ class SNMP(PDUDriver):
         else:
             for varBind in varBinds:
                 log.debug(' = '.join([x.prettyPrint() for x in varBind]))
-            return True
+
+            if value:
+                return True
+            else:
+                return varBinds[0][1]
+
+    def port_interaction(self, command, port_number):
+        if command == "on":
+            set_bit = self.onsetting
+        elif command == "off":
+            set_bit = self.offsetting
+        else:
+            raise UnknownCommandException("Unknown command %s." % (command))
+
+        self.snmpreq(port_number, set_bit)
+
+    def port_status(self, port_number):
+        status = self.snmpreq(port_number)
+
+        if status == self.onsetting:
+            return "on"
+        elif status == self.offsetting:
+            return "off"
+        else:
+            return f"unknown ({status})"
